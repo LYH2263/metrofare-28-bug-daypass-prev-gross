@@ -107,6 +107,47 @@ def test_trial_quote_does_not_persist():
         assert len(s.history()) == before
 
 
+def test_two_trial_quotes_keep_record_count():
+    with setup_service() as s:
+        s.save_day_pass(TODAY, 3.5, True)
+        before = len(s.history())
+        s.quote("A1", "B2", persist=False, use_day_pass=True)
+        s.quote("A1", "B2", persist=False, use_day_pass=True)
+        assert len(s.history()) == before
+
+
+def test_persisted_payable_matches_trial():
+    with setup_service() as s:
+        s.save_day_pass(TODAY, 3.5, True)
+        trial = s.quote("A1", "B2", persist=False, use_day_pass=True)
+        written = s.quote("A1", "B2", persist=True, use_day_pass=True)
+        assert written["run_id"] is not None
+        assert written["payable"] == trial["payable"] == 3.5
+        assert written["day_pass"]["capped"] == trial["day_pass"]["capped"] is True
+        import json
+        rows = {r["id"]: r for r in s.history()}
+        stored = json.loads(rows[written["run_id"]]["result_json"])
+        assert stored["payable"] == 3.5 and stored["day_pass"]["capped"] is True
+
+
+def test_persisted_without_day_pass_pays_uncapped_original():
+    with setup_service() as s:
+        s.save_day_pass(TODAY, 3.5, True)
+        q = s.quote("A1", "B2", persist=True, use_day_pass=False)
+        assert q["run_id"] is not None
+        assert q["fare"] == 4.0 and q["payable"] == 4.0 and q["day_pass"] is None
+
+
+def test_second_quote_without_day_pass_no_accumulation():
+    with setup_service() as s:
+        s.save_day_pass(TODAY, 3.5, True)
+        s.quote("A1", "B2", persist=True, use_day_pass=True)   # 原价 4.0,触顶 3.5
+        second = s.quote("A1", "B2", persist=True, use_day_pass=False)
+        # 前一笔原价不得加进本单;未勾选一日通,应付 == 本单原价
+        assert second["fare"] == 4.0 and second["payable"] == 4.0
+        assert second["day_pass"] is None
+
+
 def test_same_day_two_quotes_no_accumulation():
     with setup_service() as s:
         s.save_day_pass(TODAY, 3.5, True)

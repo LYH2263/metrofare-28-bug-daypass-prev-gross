@@ -1,5 +1,3 @@
-import json
-
 from app.db import connect
 from app.engines.route_quote import quote_route
 from app.modules import day_pass
@@ -44,20 +42,8 @@ class MetroService:
         result = quote_route(edges, start, end, rules)
         if result.get("reachable"):
             config = day_pass.get_config(self._conn)
-            original = float(result["fare"])
-            if persist and use_day_pass:
-                for row in runs_repo.list_recent(self._conn, 80):
-                    try:
-                        prev = json.loads(row["result_json"])
-                        inp = json.loads(row["input_json"])
-                    except Exception:
-                        continue
-                    dp = prev.get("day_pass") or {}
-                    if inp.get("use_day_pass") and dp.get("original_fare") is not None:
-                        original = round(original + float(dp["original_fare"]), 2)
-            result.update(day_pass.apply_day_pass(original, config, use_day_pass, day_pass.today_str()))
-            if result.get("day_pass"):
-                result["day_pass"]["original_fare"] = float(result["fare"])
+            # 每笔询价只拿本单分段原价跟当日封顶比较,不累计历史询价。
+            result.update(day_pass.apply_day_pass(float(result["fare"]), config, use_day_pass, day_pass.today_str()))
         else:
             result.update({"payable": None, "day_pass": None})
         run_id = None
